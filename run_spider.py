@@ -1,37 +1,57 @@
-import scrapy
-from scrapy.crawler import CrawlerProcess
-import logging
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+import time
+import pandas as pd
 
 
-logging.getLogger('scrapy').propagate = False
+
+service = Service()
+options = webdriver.ChromeOptions()
+options.add_argument("--headless")
+driver = webdriver.Chrome(service=service, options=options)
 
 
 
-class LightsSpider(scrapy.Spider):
-    name = "divan_lights"
-    start_urls = ["https://www.divan.ru/category/svet"]
-
-    def parse(self, response):
-        products = response.css("div[data-testid='product-card']")
-        for product in products:
-            name = product.css("a[class*='ProductName'] span::text").get()
-            link = product.css("a[class*='ProductName']::attr(href)").get()
-            price = product.css("span[data-testid='price']::text").get()
-
-            name = name.strip() if name else "Нет названия"
-            link = response.urljoin(link) if link else "Нет ссылки"
-            price = price.strip() + " ₽" if price else "Нет цены"
-
-            print(f" Название: {name}")
-            print(f" Ссылка: {link}")
-            print(f" Цена: {price}")
-            print("-" * 40)
-
-        next_page = response.css("a.Pagination__Next::attr(href)").get()
-        if next_page:
-            yield response.follow(next_page, callback=self.parse)
+data = []
 
 
-process = CrawlerProcess()
-process.crawl(LightsSpider)
-process.start()
+url = "https://www.divan.ru/category/svet"
+driver.get(url)
+time.sleep(3)
+
+while True:
+    products = driver.find_elements(By.CSS_SELECTOR, "div[data-testid='product-card']")
+    for product in products:
+        try:
+            name = product.find_element(By.CSS_SELECTOR, "a[class*='ProductName'] span").text.strip()
+            link = product.find_element(By.CSS_SELECTOR, "a[class*='ProductName']").get_attribute("href")
+            price = product.find_element(By.CSS_SELECTOR, "span[data-testid='price']").text.strip() + " ₽"
+        except Exception:
+            continue
+
+        data.append({
+            "Название": name,
+            "Ссылка": link,
+            "Цена": price
+        })
+
+
+    try:
+        next_btn = driver.find_element(By.CSS_SELECTOR, "a.Pagination__Next")
+        next_link = next_btn.get_attribute("href")
+        if not next_link:
+            break
+        driver.get(next_link)
+        time.sleep(2)
+    except Exception:
+        break
+
+
+driver.quit()
+
+
+df = pd.DataFrame(data)
+df.to_csv("divan_lights.csv", index=False, encoding="utf-8-sig")
+
+print("Данные сохранены в divan_lights.csv")
